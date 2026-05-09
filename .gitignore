@@ -1,0 +1,10 @@
+bin/
+obj/
+.vs/
+*.user
+*.csproj.user
+*.suo
+*.cache
+**/App_Data/*.db
+**/launchSettings.json.user
+.DS_Store
