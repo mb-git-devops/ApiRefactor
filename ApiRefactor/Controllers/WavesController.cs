@@ -2,6 +2,7 @@ using ApiRefactor.Contracts.Requests;
 using ApiRefactor.Contracts.Responses;
 using ApiRefactor.Services;
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
 
@@ -9,15 +10,16 @@ namespace ApiRefactor.Controllers;
 
 [ApiController]
 [ApiVersion("1.0")]
+[Authorize(AuthenticationSchemes = "DummyBearer")]
 [Route("api/v{version:apiVersion}/waves")]
 public sealed class WavesController(IWaveService waveService) : ControllerBase
 {
-    /// <summary>List all waves.</summary>
     [HttpGet]
     [SwaggerOperation(
         Summary = "List waves",
         Description = "Returns every wave in the system, ordered by wave date, for store picking operations.")]
     [SwaggerResponse(StatusCodes.Status200OK, "Successful response containing zero or more waves.", typeof(WavesListResponse))]
+    [SwaggerResponse(StatusCodes.Status401Unauthorized, "Missing or invalid Bearer token.")]
     [Produces("application/json")]
     public async Task<ActionResult<WavesListResponse>> GetAsync(CancellationToken cancellationToken)
     {
@@ -25,13 +27,13 @@ public sealed class WavesController(IWaveService waveService) : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Get a single wave by identifier.</summary>
     [HttpGet("{id:guid}", Name = "GetWaveById")]
     [SwaggerOperation(
         Summary = "Get wave by id",
         Description = "Returns the wave with the specified unique identifier.")]
     [SwaggerResponse(StatusCodes.Status200OK, "The wave was found.", typeof(WaveResponse))]
     [SwaggerResponse(StatusCodes.Status404NotFound, "No wave exists for the given id.")]
+    [SwaggerResponse(StatusCodes.Status401Unauthorized, "Missing or invalid Bearer token.")]
     [Produces("application/json")]
     public async Task<ActionResult<WaveResponse>> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
@@ -44,7 +46,6 @@ public sealed class WavesController(IWaveService waveService) : ControllerBase
         return Ok(new WaveResponse(wave.Id, wave.Name, wave.WaveDate));
     }
 
-    /// <summary>Create or update a wave.</summary>
     [HttpPost]
     [SwaggerOperation(
         Summary = "Upsert wave",
@@ -53,6 +54,7 @@ public sealed class WavesController(IWaveService waveService) : ControllerBase
     [SwaggerResponse(StatusCodes.Status201Created, "A new wave was inserted.", typeof(WaveResponse))]
     [SwaggerResponse(StatusCodes.Status200OK, "An existing wave was updated.", typeof(WaveResponse))]
     [SwaggerResponse(StatusCodes.Status400BadRequest, "Validation failed for the request body.", typeof(ProblemDetails))]
+    [SwaggerResponse(StatusCodes.Status401Unauthorized, "Missing or invalid Bearer token.")]
     [Produces("application/json")]
     public async Task<ActionResult<WaveResponse>> UpsertAsync(
         [FromBody] UpsertWaveRequest request,

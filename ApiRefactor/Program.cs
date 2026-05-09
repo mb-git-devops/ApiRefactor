@@ -1,3 +1,4 @@
+using ApiRefactor.Authentication;
 using ApiRefactor.Data;
 using ApiRefactor.Messaging;
 using ApiRefactor.Messaging.Consumers;
@@ -9,8 +10,10 @@ using Asp.Versioning.ApiExplorer;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using MassTransit;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +23,11 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.Configure<WaveDatabaseOptions>(builder.Configuration.GetSection(WaveDatabaseOptions.SectionName));
 builder.Services.Configure<MassTransitOptions>(builder.Configuration.GetSection(MassTransitOptions.SectionName));
+builder.Services.Configure<DummyAuthOptions>(builder.Configuration.GetSection(DummyAuthOptions.SectionName));
+
+builder.Services.AddAuthentication("DummyBearer")
+    .AddScheme<AuthenticationSchemeOptions, DummyBearerAuthenticationHandler>("DummyBearer", _ => { });
+builder.Services.AddAuthorization();
 
 builder.Services.AddDbContext<WavesDbContext>((sp, options) =>
 {
@@ -54,6 +62,27 @@ builder.Services.AddTransient<IConfigureOptions<SwaggerGenOptions>, ConfigureSwa
 builder.Services.AddSwaggerGen(options =>
 {
     options.EnableAnnotations();
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description =
+            "Demo only: enter the raw token value (Swagger adds the Bearer prefix). "
+            + "Must match DummyAuth:BearerToken in appsettings.",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "Dummy"
+    });
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
 });
 
 var massTransitSection = builder.Configuration.GetSection(MassTransitOptions.SectionName);
@@ -103,6 +132,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 app.Run();
 

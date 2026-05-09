@@ -1,7 +1,7 @@
 using ApiRefactor.Contracts.Events;
 using ApiRefactor.Messaging;
 
-namespace ApiRefactor.Tests.Support;
+namespace ApiRefactor.Tests.Setup;
 
 public sealed class RecordingWaveEventPublisher : IWaveEventPublisher
 {

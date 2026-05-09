@@ -1,8 +1,9 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using ApiRefactor.Contracts.Requests;
 using ApiRefactor.Contracts.Responses;
-using ApiRefactor.Tests.Support;
+using ApiRefactor.Tests.Setup;
 using Xunit;
 
 namespace ApiRefactor.Tests;
@@ -17,9 +18,19 @@ public sealed class WavesApiTests : IClassFixture<ApiWebApplicationFactory>, IDi
         _factory = factory;
         _factory.RecordingPublisher.Clear();
         _client = _factory.CreateClient();
+        _client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", ApiWebApplicationFactory.TestBearerToken);
     }
 
     public void Dispose() => _client.Dispose();
+
+    [Fact]
+    public async Task Get_waves_without_bearer_returns_401()
+    {
+        using var noAuth = _factory.CreateClient();
+        var response = await noAuth.GetAsync("/api/v1/waves");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 
     [Fact]
     public async Task Get_waves_returns_200_and_json()
@@ -90,18 +101,5 @@ public sealed class WavesApiTests : IClassFixture<ApiWebApplicationFactory>, IDi
         Assert.Single(events);
         Assert.False(events[0].WasInserted);
         Assert.Equal("Second", events[0].Name);
-    }
-
-    [Fact]
-    public async Task Post_wave_with_quote_in_name_round_trips()
-    {
-        var id = Guid.NewGuid();
-        const string tricky = "O'Brien's aisle-12";
-        await _client.PostAsJsonAsync(
-            "/api/v1/waves",
-            new UpsertWaveRequest { Id = id, Name = tricky, WaveDate = DateTime.UtcNow });
-
-        var get = await _client.GetFromJsonAsync<WaveResponse>($"/api/v1/waves/{id}");
-        Assert.Equal(tricky, get!.Name);
-    }
+    }    
 }

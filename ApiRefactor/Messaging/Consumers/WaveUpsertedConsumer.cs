@@ -3,7 +3,6 @@ using MassTransit;
 
 namespace ApiRefactor.Messaging.Consumers;
 
-/// <summary>Consumes <see cref="WaveUpserted"/> integration events from the message bus.</summary>
 public sealed class WaveUpsertedConsumer(ILogger<WaveUpsertedConsumer> logger) : IConsumer<WaveUpserted>
 {
     public Task Consume(ConsumeContext<WaveUpserted> context)

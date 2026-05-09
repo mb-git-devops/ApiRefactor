@@ -6,10 +6,12 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace ApiRefactor.Tests.Support;
+namespace ApiRefactor.Tests.Setup;
 
 public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>, IDisposable
 {
+    public const string TestBearerToken = "test-dummy-token";
+
     private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"waves-test-{Guid.NewGuid():N}.db");
 
     public RecordingWaveEventPublisher RecordingPublisher { get; } = new();
@@ -20,7 +22,11 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>, I
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(
-                new Dictionary<string, string?> { ["WaveDatabase:ConnectionString"] = $"Data Source={_databasePath}" });
+                new Dictionary<string, string?>
+                {
+                    ["WaveDatabase:ConnectionString"] = $"Data Source={_databasePath}",
+                    ["DummyAuth:BearerToken"] = TestBearerToken
+                });
         });
 
         builder.ConfigureTestServices(services =>
