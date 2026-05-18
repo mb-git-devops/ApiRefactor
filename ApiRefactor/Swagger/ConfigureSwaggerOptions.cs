@@ -16,7 +16,7 @@ public sealed class ConfigureSwaggerOptions(IApiVersionDescriptionProvider provi
             {
                 Title = "Waves API",
                 Version = description.ApiVersion.ToString(),
-                Description = @"Fictional Coles-style HTTP API for waves of orders routed to stores for picking. Resources are versioned in the URL path. Successful upserts publish a WaveUpserted integration event via MassTransit (in-memory bus locally, or Azure Service Bus when configured)."
+                Description = @"HTTP API for waves of orders routed to stores for picking. Resources are versioned in the URL path. Successful upserts publish a WaveUpserted integration event via MassTransit (in-memory bus locally, or Azure Service Bus when configured)."
             });
         }
     }

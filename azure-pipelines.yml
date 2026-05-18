@@ -1,0 +1,219 @@
+trigger:
+  branches:
+    include:
+      - main
+      - master
+  paths:
+    exclude:
+      - README.md
+      - CLAUDE.md
+      - docs/*
+
+pr:
+  branches:
+    include:
+      - main
+      - master
+
+variables:
+  buildConfiguration: Release
+  dotnetSdkVersion: 9.0.x
+  solution: ApiRefactor.sln
+  apiProject: ApiRefactor/ApiRefactor.csproj
+  testProject: ApiRefactor.Tests/ApiRefactor.Tests.csproj
+
+  # Override these in Azure DevOps -> Pipelines -> Variables (or a variable group)
+  azureServiceConnection: 'azure-waves'
+  resourceGroupDev: 'rg-waves-dev'
+  resourceGroupProd: 'rg-waves-prod'
+  azureLocation: 'westeurope'
+
+stages:
+  - stage: Build
+    displayName: Build & Test
+    jobs:
+      - job: build
+        displayName: Build, test, publish
+        pool:
+          vmImage: windows-latest
+        steps:
+          - task: UseDotNet@2
+            displayName: Install .NET SDK
+            inputs:
+              packageType: sdk
+              version: $(dotnetSdkVersion)
+
+          - task: DotNetCoreCLI@2
+            displayName: Restore
+            inputs:
+              command: restore
+              projects: $(solution)
+
+          - task: DotNetCoreCLI@2
+            displayName: Build
+            inputs:
+              command: build
+              projects: $(solution)
+              arguments: --configuration $(buildConfiguration) --no-restore
+
+          - task: DotNetCoreCLI@2
+            displayName: Test
+            inputs:
+              command: test
+              projects: $(testProject)
+              arguments: --configuration $(buildConfiguration) --no-build --logger trx --collect "XPlat Code Coverage"
+              publishTestResults: true
+
+          - task: DotNetCoreCLI@2
+            displayName: Publish API
+            inputs:
+              command: publish
+              publishWebProjects: false
+              projects: $(apiProject)
+              arguments: --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)/app
+              zipAfterPublish: true
+
+          - task: CopyFiles@2
+            displayName: Stage Bicep templates
+            inputs:
+              SourceFolder: infra
+              Contents: '**'
+              TargetFolder: $(Build.ArtifactStagingDirectory)/infra
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish artefacts
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)
+              artifact: drop
+
+  - stage: DeployDev
+    displayName: Deploy to Dev
+    dependsOn: Build
+    condition: and(succeeded(), in(variables['Build.SourceBranch'], 'refs/heads/main', 'refs/heads/master'))
+    variables:
+      envName: dev
+      resourceGroup: $(resourceGroupDev)
+      dummyAuthToken: $(DummyAuthBearerToken-Dev)
+    jobs:
+      - deployment: deployDev
+        displayName: Deploy infra + app (dev)
+        environment: waves-dev
+        pool:
+          vmImage: windows-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: drop
+
+                - task: AzureCLI@2
+                  displayName: Ensure resource group exists
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az group create --name $(resourceGroup) --location $(azureLocation) --tags environment=$(envName) | Out-Null
+
+                - task: AzureResourceManagerTemplateDeployment@3
+                  displayName: Deploy Bicep (dev)
+                  name: bicepDev
+                  inputs:
+                    deploymentScope: Resource Group
+                    azureResourceManagerConnection: $(azureServiceConnection)
+                    action: Create Or Update Resource Group
+                    resourceGroupName: $(resourceGroup)
+                    location: $(azureLocation)
+                    templateLocation: Linked artifact
+                    csmFile: $(Pipeline.Workspace)/drop/infra/main.bicep
+                    csmParametersFile: $(Pipeline.Workspace)/drop/infra/main.parameters.dev.json
+                    overrideParameters: -dummyAuthBearerToken "$(dummyAuthToken)"
+                    deploymentMode: Incremental
+                    deploymentOutputs: armOutputs
+
+                - task: PowerShell@2
+                  displayName: Read App Service name from ARM outputs
+                  inputs:
+                    targetType: inline
+                    pwsh: true
+                    script: |
+                      $outputs = '$(armOutputs)' | ConvertFrom-Json
+                      $name = $outputs.appServiceName.value
+                      Write-Host "##vso[task.setvariable variable=appServiceName]$name"
+                      Write-Host "App Service: $name"
+
+                - task: AzureWebApp@1
+                  displayName: Deploy package to App Service (dev)
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    appType: webApp
+                    appName: $(appServiceName)
+                    package: $(Pipeline.Workspace)/drop/app/*.zip
+                    deploymentMethod: zipDeploy
+
+  - stage: DeployProd
+    displayName: Deploy to Prod
+    dependsOn: DeployDev
+    condition: and(succeeded(), in(variables['Build.SourceBranch'], 'refs/heads/main', 'refs/heads/master'))
+    variables:
+      envName: prod
+      resourceGroup: $(resourceGroupProd)
+      dummyAuthToken: $(DummyAuthBearerToken-Prod)
+    jobs:
+      - deployment: deployProd
+        displayName: Deploy infra + app (prod)
+        environment: waves-prod
+        pool:
+          vmImage: windows-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: drop
+
+                - task: AzureCLI@2
+                  displayName: Ensure resource group exists
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az group create --name $(resourceGroup) --location $(azureLocation) --tags environment=$(envName) | Out-Null
+
+                - task: AzureResourceManagerTemplateDeployment@3
+                  displayName: Deploy Bicep (prod)
+                  name: bicepProd
+                  inputs:
+                    deploymentScope: Resource Group
+                    azureResourceManagerConnection: $(azureServiceConnection)
+                    action: Create Or Update Resource Group
+                    resourceGroupName: $(resourceGroup)
+                    location: $(azureLocation)
+                    templateLocation: Linked artifact
+                    csmFile: $(Pipeline.Workspace)/drop/infra/main.bicep
+                    csmParametersFile: $(Pipeline.Workspace)/drop/infra/main.parameters.prod.json
+                    overrideParameters: -dummyAuthBearerToken "$(dummyAuthToken)"
+                    deploymentMode: Incremental
+                    deploymentOutputs: armOutputs
+
+                - task: PowerShell@2
+                  displayName: Read App Service name from ARM outputs
+                  inputs:
+                    targetType: inline
+                    pwsh: true
+                    script: |
+                      $outputs = '$(armOutputs)' | ConvertFrom-Json
+                      $name = $outputs.appServiceName.value
+                      Write-Host "##vso[task.setvariable variable=appServiceName]$name"
+                      Write-Host "App Service: $name"
+
+                - task: AzureWebApp@1
+                  displayName: Deploy package to App Service (prod)
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    appType: webApp
+                    appName: $(appServiceName)
+                    package: $(Pipeline.Workspace)/drop/app/*.zip
+                    deploymentMethod: zipDeploy
